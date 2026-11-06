@@ -235,7 +235,7 @@ export default function App() {
   // 4. Controles Geoespaciales Leaflet.js (RF-05 Mapa de Calor & RF-06 Clustering)
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [showClusters, setShowClusters] = useState(true);
-  const [tileStyle, setTileStyle] = useState("tactical"); // "tactical" | "streets" | "satellite"
+  const [tileStyle, setTileStyle] = useState("google_streets"); // "google_streets" | "google_hybrid" | "osm" | "carto_dark"
   const [currentZoom, setCurrentZoom] = useState(12);
 
   // 5. Modal de Desencriptado de Ficha Medica E2EE y Despacho
@@ -440,15 +440,16 @@ export default function App() {
     if (!adminUser || !mapContainerRef.current || mapInstanceRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
-      center: [10.488, -66.865],
+      center: [10.495, -66.885],
       zoom: 12,
-      zoomControl: false
+      zoomControl: true,
+      maxZoom: 20
     });
 
-    const tileUrl =
-      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+    const tileUrl = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=es";
     tileLayerRef.current = L.tileLayer(tileUrl, {
-      attribution: "Cartografia SIG Gran Caracas · Esri ArcGIS"
+      maxZoom: 20,
+      attribution: "Cartografía Actualizada Gran Caracas · Google Maps HD & OpenStreetMap"
     }).addTo(map);
 
     heatLayerRef.current = L.layerGroup().addTo(map);
@@ -466,17 +467,16 @@ export default function App() {
     };
   }, [adminUser]);
 
-  // Cambio de estilo de cartografia
+  // Cambio de estilo de cartografia actualizada (Google Maps HD / Satelite Hibrido / OpenStreetMap / Nocturno con Calles)
   useEffect(() => {
     if (!mapInstanceRef.current || !tileLayerRef.current) return;
-    let url =
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
-    if (tileStyle === "satellite") {
-      url =
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-    } else if (tileStyle === "tactical") {
-      url =
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+    let url = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=es";
+    if (tileStyle === "google_hybrid") {
+      url = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=es";
+    } else if (tileStyle === "osm") {
+      url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    } else if (tileStyle === "carto_dark") {
+      url = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
     }
     tileLayerRef.current.setUrl(url);
   }, [tileStyle]);
@@ -1226,24 +1226,31 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className={`tactical-btn ${tileStyle === "tactical" ? "active" : ""}`}
-                onClick={() => setTileStyle("tactical")}
+                className={`tactical-btn ${tileStyle === "google_streets" ? "active" : ""}`}
+                onClick={() => setTileStyle("google_streets")}
               >
-                Táctico
+                Google Maps HD
               </button>
               <button
                 type="button"
-                className={`tactical-btn ${tileStyle === "streets" ? "active" : ""}`}
-                onClick={() => setTileStyle("streets")}
+                className={`tactical-btn ${tileStyle === "google_hybrid" ? "active" : ""}`}
+                onClick={() => setTileStyle("google_hybrid")}
               >
-                Calles
+                Satélite + Calles
               </button>
               <button
                 type="button"
-                className={`tactical-btn ${tileStyle === "satellite" ? "active" : ""}`}
-                onClick={() => setTileStyle("satellite")}
+                className={`tactical-btn ${tileStyle === "osm" ? "active" : ""}`}
+                onClick={() => setTileStyle("osm")}
               >
-                Satélite
+                OpenStreetMap
+              </button>
+              <button
+                type="button"
+                className={`tactical-btn ${tileStyle === "carto_dark" ? "active" : ""}`}
+                onClick={() => setTileStyle("carto_dark")}
+              >
+                Nocturno HD
               </button>
             </div>
           </div>

@@ -237,6 +237,7 @@ export default function App() {
   const [showClusters, setShowClusters] = useState(true);
   const [tileStyle, setTileStyle] = useState("google_streets"); // "google_streets" | "google_hybrid" | "osm" | "carto_dark"
   const [currentZoom, setCurrentZoom] = useState(12);
+  const [mapReady, setMapReady] = useState(0);
 
   // 5. Modal de Desencriptado de Ficha Medica E2EE y Despacho
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -437,7 +438,23 @@ export default function App() {
   // INICIALIZACION Y ACTUALIZACION DEL MAPA INTERACTIVO LEAFLET.JS
   // ==========================================================================
   useEffect(() => {
-    if (!adminUser || !mapContainerRef.current || mapInstanceRef.current) return;
+    // Si la autenticacion aun esta cargando o no hay usuario o no esta montado el nodo DOM, esperar
+    if (authLoading || !adminUser || !mapContainerRef.current) return;
+
+    // Si ya existe una instancia previa (por re-render o StrictMode), removerla limpiamente
+    if (mapInstanceRef.current) {
+      try {
+        mapInstanceRef.current.remove();
+      } catch (e) {
+        // ignore
+      }
+      mapInstanceRef.current = null;
+    }
+
+    // Prevenir el error fatal de Leaflet: "Map container is already initialized"
+    if (mapContainerRef.current._leaflet_id) {
+      delete mapContainerRef.current._leaflet_id;
+    }
 
     const map = L.map(mapContainerRef.current, {
       center: [10.495, -66.885],
@@ -446,11 +463,16 @@ export default function App() {
       maxZoom: 20
     });
 
-    const tileUrl = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=es";
-    tileLayerRef.current = L.tileLayer(tileUrl, {
+    // Rotacion de subdominios mt0..mt3 de Google para evitar cuellos de botella de conexion
+    const tileUrl = "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=es";
+    const baseTile = L.tileLayer(tileUrl, {
       maxZoom: 20,
+      subdomains: ["0", "1", "2", "3"],
       attribution: "Cartografía Actualizada Gran Caracas · Google Maps HD & OpenStreetMap"
-    }).addTo(map);
+    });
+
+    baseTile.addTo(map);
+    tileLayerRef.current = baseTile;
 
     heatLayerRef.current = L.layerGroup().addTo(map);
     markersLayerRef.current = L.layerGroup().addTo(map);
@@ -460,25 +482,56 @@ export default function App() {
     });
 
     mapInstanceRef.current = map;
+    setMapReady((prev) => prev + 1);
+
+    // LLAMADOS ESCALONADOS DE INVALIDATESIZE:
+    // Obligatorios en CSS Grid/Flexbox para que Leaflet reconozca las dimensiones reales calculadas por el navegador
+    const t1 = setTimeout(() => map.invalidateSize(), 60);
+    const t2 = setTimeout(() => map.invalidateSize(), 250);
+    const t3 = setTimeout(() => map.invalidateSize(), 600);
+    const t4 = setTimeout(() => map.invalidateSize(), 1200);
+
+    let ro = null;
+    if (typeof ResizeObserver !== "undefined" && mapContainerRef.current) {
+      ro = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      ro.observe(mapContainerRef.current);
+    }
 
     return () => {
-      map.remove();
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      if (ro) ro.disconnect();
+      try {
+        map.remove();
+      } catch (e) {
+        // ignore
+      }
       mapInstanceRef.current = null;
     };
-  }, [adminUser]);
+  }, [adminUser, authLoading]);
 
   // Cambio de estilo de cartografia actualizada (Google Maps HD / Satelite Hibrido / OpenStreetMap / Nocturno con Calles)
   useEffect(() => {
     if (!mapInstanceRef.current || !tileLayerRef.current) return;
-    let url = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=es";
+    let url = "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=es";
+    let subdomains = ["0", "1", "2", "3"];
     if (tileStyle === "google_hybrid") {
-      url = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=es";
+      url = "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=es";
     } else if (tileStyle === "osm") {
       url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      subdomains = ["a", "b", "c"];
     } else if (tileStyle === "carto_dark") {
       url = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+      subdomains = ["a", "b", "c", "d"];
     }
     tileLayerRef.current.setUrl(url);
+    setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize();
+    }, 120);
   }, [tileStyle]);
 
   // Pintado de Mapa de Calor (RF-05) y Clustering / Pines (RF-06) con datos 100% reales
@@ -588,7 +641,7 @@ export default function App() {
         marker.addTo(markersLayerRef.current);
       });
     }
-  }, [filteredAlerts, showHeatmap, showClusters, currentZoom]);
+  }, [filteredAlerts, showHeatmap, showClusters, currentZoom, mapReady]);
 
   // Sub-menu operativo rapido en cada tarjeta (RF-04 / RF-07) sin recargar pagina
   const handleQuickInlineDispatch = async (alertItem, nuevoEstado, nuevaBrigada) => {
@@ -1329,7 +1382,11 @@ export default function App() {
             </div>
           </div>
 
-          <div ref={mapContainerRef} className="map-container-frame" />
+          <div
+            ref={mapContainerRef}
+            className="map-container-frame"
+            style={{ minHeight: "520px", width: "100%", height: "100%", position: "relative" }}
+          />
         </section>
 
         {/* COLUMNA 3: MONITOREO ASINCRONO, SUB-MENU DE ASIGNACION Y TRAZABILIDAD IEEE 830 */}
